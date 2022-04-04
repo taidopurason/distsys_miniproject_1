@@ -2,14 +2,12 @@ from __future__ import annotations
 
 import json
 import logging
-import sys
-import time
 from dataclasses import dataclass, asdict
 from enum import Enum
-from threading import Lock, Thread
+from threading import Lock, Thread, Event
 from random import randint
 
-from typing import Optional, List
+from typing import Optional, Dict
 
 import rpyc
 from rpyc import Service
@@ -84,34 +82,11 @@ class ProcessService(Service):
     def __init__(self, process: Process):
         self.process = process
 
-    def exposed_state(self):
-        return self.process.state
-
-    def exposed_time(self):
-        return self.process.clock.time
-
-    def exposed_shut_down(self):
-        logger.info(f"Shutting down process with id {self.process.id}")
-        sys.exit(0)
-
     def exposed_message(self, message: str):
         response = self.process.handle_message(Message.deserialize(message))
         if isinstance(response, Message):
             return response.serialize()
         return response
-
-
-class Sender:
-    def send(self, message: Message, port: int):
-        with rpyc.connect("localhost", port) as conn:
-            response = conn.root.message(message.serialize())
-            if isinstance(response, str):
-                return Message.deserialize(response)
-            return response
-
-    def use_resource(self, port: int):
-        with rpyc.connect("localhost", port) as conn:
-            return conn.root.use()
 
 
 @dataclass(frozen=True)
@@ -131,23 +106,38 @@ class Message:
 
 
 class Process(Thread):
-    def __init__(self, id: int, resource_port: int, other_processes: List[int]):
+    def __init__(self, process_id: int, resource_port: int, id_to_port: Dict[int, int]):
         super().__init__()
-        self.id = id
+        self.id = process_id
 
         self.clock: LamportClock = LamportClock()
         self.state: State = State.DO_NOT_WANT
         self.sent_message: Optional[Message] = None
 
-        self.t_p = 5
+        self._time = 5
 
         self.queue = ResponseQueue()
         self.waiting = Requests()
 
-        self.sender = Sender()
+        self.id_to_port = id_to_port
 
         self.resource_port = resource_port
-        self.other_processes = other_processes
+
+        self.other_processes = set(self.id_to_port.keys()) - {self.id}
+        if self.id not in self.id_to_port:
+            raise Exception("Process id is missing from id to port map.")
+
+    def set_time(self, t):
+        if t < T_LOWER:
+            raise Exception(f"time must be greater or equal to {T_LOWER}")
+        self._time = t
+
+    def _send_message(self, message: Message, target_id: int):
+        with rpyc.connect("localhost", self.id_to_port[target_id]) as conn:
+            response = conn.root.message(message.serialize())
+            if isinstance(response, str):
+                return Message.deserialize(response)
+            return response
 
     def handle_request(self, message: Message) -> Optional[Message]:
         self.clock.increment(message.time)
@@ -156,16 +146,17 @@ class Process(Thread):
                 self.state == State.HELD or
                 (self.state == State.WANTED and
                  (self.sent_message.time < message.time or
+                 # id timestamps are the same, using id to break the tie
                   (self.sent_message.time == message.time and self.id < message.sender_id)
                  )
                 )
         ):
-            logger.info(f"{self.id} ignoring request")
+            logger.info(f"P{self.id} ignoring request")
             self.queue.add(message)
             return None
 
         reply = Message(MessageType.REPLY, self.id, self.clock.increment())
-        logger.info(f"{self.id} replying with {reply}")
+        logger.info(f"P{self.id} replying with {reply}")
         return reply
 
     def handle_reply(self, message: Message):
@@ -173,7 +164,7 @@ class Process(Thread):
         self.waiting.remove(message.sender_id)
 
     def handle_message(self, message: Message):
-        logger.info(f"{self.id} received message {message}")
+        logger.info(f"P{self.id} received message {message}")
         if message.type == MessageType.REQUEST:
             return self.handle_request(message)
         elif message.type == MessageType.REPLY:
@@ -182,14 +173,14 @@ class Process(Thread):
             raise Exception("Unknown message type")
 
     def send_request_message(self, message: Message, p_id: int):
-        response = self.sender.send(message, p_id)
-        logger.info(f"{self.id} received reply {response}")
+        response = self._send_message(message, p_id)
+        logger.info(f"P{self.id} received reply {response}")
         if response is None:
             self.waiting.add(p_id)
         else:
             self.clock.increment(response.time)
 
-    def request_resource(self) -> None:
+    def request_resource(self):
         if self.state != State.DO_NOT_WANT:
             raise Exception
 
@@ -201,25 +192,28 @@ class Process(Thread):
             self.send_request_message(msg, p)
 
         while self.waiting.is_waiting():
-            logger.info(f"{self.id} waiting for {self.waiting.requests}")
-            time.sleep(1)
+            # Event().wait(1)
             pass
 
-    def use_resource(self) -> None:
+    def use_resource(self):
         self.state = State.HELD
-        self.sender.use_resource(self.resource_port)
+        with rpyc.connect("localhost", self.resource_port) as conn:
+            return conn.root.use()
 
     def free_resource(self):
         self.state = State.DO_NOT_WANT
         self.sent_message = None
 
-        while len(self.queue) > 0:
-            message = self.queue.pop()
-            self.sender.send(Message(MessageType.REPLY, self.id, self.clock.increment()), message.sender_id)
+        if len(self.queue) > 0:
+            reply_message = Message(MessageType.REPLY, self.id, self.clock.increment())
+            while len(self.queue) > 0:
+                message = self.queue.pop()
+                self._send_message(reply_message, message.sender_id)
 
     def _start_server(self):
+        logger.info(f"P{self.id} starting server with port {self.id_to_port[self.id]}")
         service = classpartial(ProcessService, self)
-        server = ThreadedServer(service, port=self.id)
+        server = ThreadedServer(service, port=self.id_to_port[self.id])
         thread = Thread(target=server.start)
         thread.daemon = True
         thread.start()
@@ -227,17 +221,10 @@ class Process(Thread):
     def run(self) -> None:
         self._start_server()
         while True:
-            time.sleep(randint(5, self.t_p))
-            logger.info(f"{self.id} requesting resource")
+            Event().wait(randint(5, self._time))
+            logger.info(f"P{self.id} requesting resource")
             self.request_resource()
-            logger.info(f"{self.id} using resource")
+            logger.info(f"P{self.id} using resource")
             self.use_resource()
-            logger.info(f"{self.id} freeing resource")
+            logger.info(f"P{self.id} freeing resource")
             self.free_resource()
-
-
-def create_process(port: int, resource_port: int, other_process_ports):
-    p = Process(port, resource_port, other_process_ports)
-    p.daemon = True
-    p.start()
-    p.join()

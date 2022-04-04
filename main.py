@@ -1,29 +1,74 @@
 import logging
+import sys
+
+import argparse
+
 from process import Process
-from service import Resource
+from resource import Resource
 
-N = 3
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description='Ricart-Agrawala algorithm')
+    parser.add_argument('n_procs', metavar='N', type=int, help="The number of processes to create.")
+    parser.add_argument('--resource-port', type=int, default=18812, help="Resource port")
+    parser.add_argument(
+        '--process-ports',
+        type=int,
+        nargs="*",
+        default=None,
+        help="List of ports assigned to processes. If specified, number of arguments must equal N"
+    )
+    parser.add_argument('--logfile', type=str, help="If specified, logs process events to the file given.")
 
-resource_port = 18812
-process_ports = tuple(18813 + i for i in range(N))
+    args = parser.parse_args()
+    N = args.n_procs
 
-logging.basicConfig(
-    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
-)
+    resource_port = args.resource_port
+    process_ports = tuple(args.process_ports) if args.process_ports is not None else tuple(
+        resource_port + i + 1 for i in range(N))
 
-logging.getLogger("process").setLevel(logging.INFO)
+    if len(process_ports) != N:
+        print("Process ports do not match with the number of processes.")
 
-resource = Resource(resource_port)
-resource.start()
+    id_to_port = {i: port for i, port in enumerate(process_ports)}
 
-processes = []
-for process_port in process_ports:
-    process = Process(process_port, resource_port, list(set(process_ports) - {process_port}))
-    process.daemon = True
-    process.start()
-    processes.append(process)
+    if args.logfile is not None:
+        logging.basicConfig(
+            filename=args.logfile,
+            format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
+        )
+        logging.getLogger("process").setLevel(logging.INFO)
+        logging.getLogger("resource").setLevel(logging.INFO)
 
-for t in processes:
-    t.join()
-resource.join()
+    resource = Resource(resource_port)
+    resource.daemon = True
+    resource.start()
+
+    processes = []
+    for pid in id_to_port.keys():
+        process = Process(pid, resource_port, id_to_port)
+        process.daemon = True
+        process.start()
+        processes.append(process)
+
+    while True:
+        cmd = input("Input command: ").split(" ")
+        command = cmd[0]
+        if command == "List" or command == "list":
+            for p in processes:
+                print(f"P{p.id}, {p.state.value}")
+        elif command == "time-cs":
+            try:
+                resource.set_time(int(cmd[1]))
+            except Exception as e:
+                print(e)
+        elif command == "time-p":
+            try:
+                for p in processes:
+                    p.set_time(int(cmd[1]))
+            except Exception as e:
+                print(e)
+        elif command == "exit":
+            sys.exit(0)
+        else:
+            print("Unrecognized command")
