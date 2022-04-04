@@ -220,7 +220,7 @@ class Process(Thread):
     def run(self):
         self._start_server()
         while True:
-            Event().wait(randint(5, self._time))
+            Event().wait(randint(T_LOWER, self._time))
             logger.info(f"P{self.id} requesting resource")
             self.request_resource()
             logger.info(f"P{self.id} using resource")
