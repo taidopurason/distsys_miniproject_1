@@ -12,7 +12,7 @@ Distributed Systems Mini-Project 1
 
 ## Instructions
 
-Run the program with:
+To start the program clone this repositiry and run the program with (inside the directory of the repository):
 
 ```
 python main.py N
