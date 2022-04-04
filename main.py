@@ -76,3 +76,4 @@ if __name__ == "__main__":
             sys.exit(0)
         else:
             print("Unrecognized command")
+            print("Valid commands are:\n\tList,\ttime-cs <int>,\ttime-p <int>,\texit")
