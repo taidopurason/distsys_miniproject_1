@@ -35,3 +35,10 @@ When started, the program asks for user input. Valid inputs are:
 * ```time-p <t:int>``` - sets ```t_p```; process waits for random amount of time selected from ```[5, t]``` before requesting a resource.
 * ```exit``` - exits the program
 
+### Video Demonstration
+
+
+https://user-images.githubusercontent.com/42523949/161619306-9b460e21-eb9e-4282-a579-809141c1e7d7.mp4
+
+
+
