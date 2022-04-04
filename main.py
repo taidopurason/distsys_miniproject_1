@@ -27,10 +27,11 @@ if __name__ == "__main__":
         resource_port + i + 1 for i in range(N))
 
     if len(process_ports) != N:
-        print("Process ports do not match with the number of processes.")
+        raise ValueError("Process ports do not match with the number of processes.")
 
     id_to_port = {i: port for i, port in enumerate(process_ports)}
 
+    # for better understanding of what is happening in processes
     if args.logfile is not None:
         logging.basicConfig(
             filename=args.logfile,
@@ -52,20 +53,23 @@ if __name__ == "__main__":
         processes.append(process)
 
     while True:
-        cmd = input("Input command: ").split(" ")
-        command = cmd[0]
-        if command == "List" or command == "list":
+        arguments = input("Input command: ").split(" ")
+        command = arguments[0]
+
+        if len(arguments) > 2:
+            print("Too many arguments")
+        elif command == "List" or command == "list":
             for p in processes:
                 print(f"P{p.id}, {p.state.value}")
         elif command == "time-cs":
             try:
-                resource.set_time(int(cmd[1]))
+                resource.set_time(int(arguments[1]))
             except Exception as e:
                 print(e)
         elif command == "time-p":
             try:
                 for p in processes:
-                    p.set_time(int(cmd[1]))
+                    p.set_time(int(arguments[1]))
             except Exception as e:
                 print(e)
         elif command == "exit":

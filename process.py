@@ -129,15 +129,15 @@ class Process(Thread):
 
     def set_time(self, t):
         if t < T_LOWER:
-            raise Exception(f"time must be greater or equal to {T_LOWER}")
+            raise Exception(f"Time must be greater or equal to {T_LOWER}.")
         self._time = t
 
-    def _send_message(self, message: Message, target_id: int):
+    def _send_message(self, message: Message, target_id: int) -> Optional[Message]:
         with rpyc.connect("localhost", self.id_to_port[target_id]) as conn:
             response = conn.root.message(message.serialize())
             if isinstance(response, str):
                 return Message.deserialize(response)
-            return response
+            return None
 
     def handle_request(self, message: Message) -> Optional[Message]:
         self.clock.increment(message.time)
@@ -146,7 +146,7 @@ class Process(Thread):
                 self.state == State.HELD or
                 (self.state == State.WANTED and
                  (self.sent_message.time < message.time or
-                 # id timestamps are the same, using id to break the tie
+                  # id timestamps are the same, using id to break the tie
                   (self.sent_message.time == message.time and self.id < message.sender_id)
                  )
                 )
@@ -163,7 +163,7 @@ class Process(Thread):
         self.clock.increment(message.time)
         self.waiting.remove(message.sender_id)
 
-    def handle_message(self, message: Message):
+    def handle_message(self, message: Message) -> Optional[Message]:
         logger.info(f"P{self.id} received message {message}")
         if message.type == MessageType.REQUEST:
             return self.handle_request(message)
@@ -182,7 +182,7 @@ class Process(Thread):
 
     def request_resource(self):
         if self.state != State.DO_NOT_WANT:
-            raise Exception
+            raise Exception("Incorrect state")
 
         msg = Message(MessageType.REQUEST, self.id, self.clock.increment())
         self.sent_message = msg
@@ -192,7 +192,6 @@ class Process(Thread):
             self.send_request_message(msg, p)
 
         while self.waiting.is_waiting():
-            # Event().wait(1)
             pass
 
     def use_resource(self):
@@ -218,7 +217,7 @@ class Process(Thread):
         thread.daemon = True
         thread.start()
 
-    def run(self) -> None:
+    def run(self):
         self._start_server()
         while True:
             Event().wait(randint(5, self._time))

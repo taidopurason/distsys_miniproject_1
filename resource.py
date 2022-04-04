@@ -5,7 +5,6 @@ from random import randint
 from rpyc import Service, ThreadedServer
 from rpyc.utils.helpers import classpartial
 
-resource_lock = Lock()
 T_LOWER = 10
 
 logger = logging.getLogger(__name__)
@@ -16,10 +15,15 @@ class Resource(Thread):
         super().__init__()
         self.port = port
         self._time = 10
+        self.lock = Lock()
+
+    @property
+    def time(self) -> int:
+        return self._time
 
     def set_time(self, t):
         if t < T_LOWER:
-            raise Exception(f"time must be greater or equal to {T_LOWER}")
+            raise Exception(f"Time must be greater or equal to {T_LOWER}.")
 
         self._time = t
 
@@ -34,8 +38,8 @@ class ResourceService(Service):
         self.resource = resource
 
     def exposed_use(self):
-        if resource_lock.locked():
+        if self.resource.lock.locked():
             raise Exception("Resource already in use")
 
-        with resource_lock:
-            Event().wait(randint(T_LOWER, self.resource._time))
+        with self.resource.lock:
+            Event().wait(randint(T_LOWER, self.resource.time))
