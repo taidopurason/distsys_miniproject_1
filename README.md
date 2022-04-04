@@ -38,7 +38,7 @@ When started, the program asks for user input. Valid inputs are:
 ### Video Demonstration
 
 
-https://user-images.githubusercontent.com/42523949/161619306-9b460e21-eb9e-4282-a579-809141c1e7d7.mp4
+https://user-images.githubusercontent.com/42523949/161621033-21d2506c-87f7-487a-bca6-4c1ee84a52f4.mp4
 
 
 
